@@ -7,16 +7,27 @@
 ## Struktur Proyek
 
 ```
-rupiah-detector/
-├── config.py            Constants, database nominal, parameter tunable
-├── preprocessor.py      Grayscale, Blur, Canny, findContours
-├── rectifier.py         minAreaRect, order_points, warpPerspective
-├── feature_extractor.py Aspek rasio & fraksi hue HSV
-├── classifier.py        Klasifikasi + confidence scoring
-├── tts_engine.py        Text-to-Speech (pyttsx3 / gTTS / console fallback)
-├── pipeline.py          Orkestrasi pipeline lengkap
-├── main.py              Entry point (kamera / gambar / kalibrasi)
-├── test_pipeline.py     Pengujian otomatis dengan gambar sintetis
+DeteksiUang/
+├── src/                 # Kode sistem utama
+│   ├── config.py        Constants, database nominal, parameter tunable
+│   ├── preprocessor.py  Grayscale, Blur, Canny, findContours
+│   ├── rectifier.py     minAreaRect, order_points, warpPerspective
+│   ├── feature_extractor.py  Aspek rasio & fraksi hue HSV
+│   ├── classifier.py    Klasifikasi + confidence scoring
+│   ├── tts_engine.py    Text-to-Speech (pyttsx3 / gTTS / console)
+│   ├── pipeline.py      Orkestrasi pipeline lengkap
+│   ├── main.py          Entry point (kamera / gambar / kalibrasi)
+│   └── test_pipeline.py Pengujian otomatis gambar sintetis
+├── images/              # Contoh gambar uang untuk mode statis
+├── assets/              # Gambar & media
+│   ├── flowchart.drawio.png
+│   └── audio_cache/     # Cache suara TTS
+├── docs/                # Dokumentasi
+│   ├── README.md
+│   ├── catatan.md
+│   ├── Konteks.md
+│   ├── flowchart.md
+│   └── userflow.md
 └── requirements.txt
 ```
 
@@ -40,34 +51,34 @@ Dependensi:
 
 ### Mode Kamera (penggunaan utama)
 ```bash
-python main.py
+python src/main.py
 ```
 - Arahkan kamera ke uang kertas di atas permukaan polos
-- Tekan **SPASI** untuk memindai
+- Deteksi berjalan otomatis (tanpa tombol)
 - Tekan **Q** untuk keluar
 
 ### Mode Debug (tampilkan overlay metrik)
 ```bash
-python main.py --debug
+python src/main.py --debug
 ```
 
 ### Mode Gambar Statis
 ```bash
-python main.py --image foto_uang.jpg
-python main.py --image foto_uang.jpg --debug
+python src/main.py --image images/foto_uang.jpg
+python src/main.py --image images/foto_uang.jpg --debug
 ```
 
 ### Mode Kalibrasi HSV
 ```bash
-python main.py --calibrate
+python src/main.py --calibrate
 ```
 Gunakan slider untuk menemukan rentang Hue yang tepat untuk setiap nominal
 di bawah kondisi pencahayaan kamera Anda. Tekan **S** untuk menyimpan nilai,
-lalu perbarui `hue_ranges` di `config.py`.
+lalu perbarui `hue_ranges` di `src/config.py`.
 
 ### Pengujian Otomatis
 ```bash
-python test_pipeline.py
+python src/test_pipeline.py
 ```
 Menjalankan seluruh pipeline terhadap gambar sintetis. Tidak memerlukan
 kamera fisik maupun uang asli.
@@ -114,14 +125,14 @@ Semua nominal memiliki lebar seragam **65 mm**. Penggunaan aspek rasio
 2. Letakkan masing-masing nominal di depan kamera
 3. Geser slider H Min / H Max hingga hanya warna dominan uang yang terlihat di mask
 4. Tekan **S** untuk mencetak nilai ke konsol
-5. Perbarui `hue_ranges` di `config.py` untuk nominal tersebut
+5. Perbarui `hue_ranges` di `src/config.py` untuk nominal tersebut
 
 Nilai default yang tersedia adalah **estimasi**. Akurasi warna sangat bergantung
 pada kamera dan kondisi pencahayaan ruangan Anda.
 
 ---
 
-## Toleransi & Parameter Tunable (config.py)
+## Toleransi & Parameter Tunable (src/config.py)
 
 | Parameter                 | Default | Keterangan                                        |
 |:--------------------------|:-------:|:--------------------------------------------------|

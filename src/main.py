@@ -20,13 +20,11 @@ from tts_engine import init as tts_init, speak
 from pipeline import process_frame
 from classifier import ClassificationResult
 from config import (
-    CAMERA_INDEX, FRAME_WIDTH, FRAME_HEIGHT,
+    CAMERA_INDEX, CAMERA_URL, FRAME_WIDTH, FRAME_HEIGHT, DISPLAY_SCALE,
     STABILITY_FRAMES, COOLDOWN_SECONDS, NO_MONEY_MSG_INTERVAL,
 )
 
-# -----------------------------------------------------------------------
 # Colours used in the UI overlay
-# -----------------------------------------------------------------------
 C_GREEN   = (30, 210, 30)
 C_YELLOW  = (30, 210, 210)
 C_ORANGE  = (30, 120, 255)
@@ -36,9 +34,7 @@ C_WHITE   = (240, 240, 240)
 C_BG      = (20, 20, 20)
 
 
-# -----------------------------------------------------------------------
 # Stability buffer  -  requires N consecutive identical detections
-# -----------------------------------------------------------------------
 class StabilityBuffer:
     """
     Accumulates consecutive detection results.
@@ -89,9 +85,7 @@ class StabilityBuffer:
         return len(self._history) / STABILITY_FRAMES
 
 
-# -----------------------------------------------------------------------
 # Drawing helpers
-# -----------------------------------------------------------------------
 def _text(img, text, pt, scale=0.65, color=C_WHITE, thickness=2):
     cv2.putText(img, text, pt, cv2.FONT_HERSHEY_SIMPLEX, scale,
                 (0, 0, 0), thickness + 2, cv2.LINE_AA)
@@ -178,17 +172,19 @@ def _draw_contour_overlay(img, contour, result: ClassificationResult | None,
     cv2.drawContours(img, [contour], -1, color, 3, cv2.LINE_AA)
 
 
-# -----------------------------------------------------------------------
 # Camera auto-detection loop
-# -----------------------------------------------------------------------
 def run_camera_mode(debug: bool = False) -> None:
-    #cap = cv2.VideoCapture(CAMERA_INDEX)
-    cap = cv2.VideoCapture("http://192.168.1.76:8080/video")
+    if CAMERA_URL:
+        cap = cv2.VideoCapture(CAMERA_URL)
+        print(f"[INFO] Using IP camera: {CAMERA_URL}")
+    else:
+        cap = cv2.VideoCapture(CAMERA_INDEX)
+        print(f"[INFO] Using local camera #{CAMERA_INDEX}")
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
 
     if not cap.isOpened():
-        print(f"[ERROR] Cannot open camera {CAMERA_INDEX}")
+        print("[ERROR] Cannot open camera")
         speak("Kamera tidak ditemukan")
         sys.exit(1)
 
@@ -208,7 +204,6 @@ def run_camera_mode(debug: bool = False) -> None:
             break
         frame_n += 1
 
-        # --- Process every 2nd frame for performance ---
         if frame_n % 2 == 0:
             result, _, warped = process_frame(frame, debug_overlay=False)
 
@@ -237,7 +232,6 @@ def run_camera_mode(debug: bool = False) -> None:
                 speak("Uang Tidak Terlihat, Dekatkan Kamera")
                 no_money_ts = time.time()
 
-        # --- Build display frame ---
         display = frame.copy()
 
         if not buf.in_cooldown:
@@ -257,6 +251,12 @@ def run_camera_mode(debug: bool = False) -> None:
             for i, line in enumerate(dbg_lines):
                 _text(display, line, (14, 58 + i * 22), scale=0.5, color=C_YELLOW)
 
+        # Resize display if needed
+        if DISPLAY_SCALE < 1.0:
+            disp_w = int(display.shape[1] * DISPLAY_SCALE)
+            disp_h = int(display.shape[0] * DISPLAY_SCALE)
+            display = cv2.resize(display, (disp_w, disp_h), interpolation=cv2.INTER_LINEAR)
+
         cv2.imshow("Rupiah Detector  [ Q = keluar ]", display)
 
         key = cv2.waitKey(1) & 0xFF
@@ -267,9 +267,7 @@ def run_camera_mode(debug: bool = False) -> None:
     cv2.destroyAllWindows()
 
 
-# -----------------------------------------------------------------------
 # Single-image mode
-# -----------------------------------------------------------------------
 def run_image_mode(image_path: str, debug: bool = False) -> None:
     frame = cv2.imread(image_path)
     if frame is None:
@@ -290,11 +288,19 @@ def run_image_mode(image_path: str, debug: bool = False) -> None:
     cv2.destroyAllWindows()
 
 
-# -----------------------------------------------------------------------
 # HSV calibration tool
-# -----------------------------------------------------------------------
+def _open_camera():
+    if CAMERA_URL:
+        cap = cv2.VideoCapture(CAMERA_URL)
+        print(f"[INFO] Using IP camera: {CAMERA_URL}")
+    else:
+        cap = cv2.VideoCapture(CAMERA_INDEX)
+        print(f"[INFO] Using local camera #{CAMERA_INDEX}")
+    return cap
+
+
 def run_calibration_mode() -> None:
-    cap = cv2.VideoCapture(CAMERA_INDEX)
+    cap = _open_camera()
     if not cap.isOpened():
         print("[ERROR] Cannot open camera")
         sys.exit(1)
@@ -325,23 +331,30 @@ def run_calibration_mode() -> None:
         info = f"H:[{hmin}-{hmax}]  S_min:{smin}  V_min:{vmin}"
         cv2.putText(frame, info, (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
                     0.7, (0, 255, 255), 2)
-        cv2.imshow(win, frame)
-        cv2.imshow("Mask", masked)
+        # Resize display if needed
+        if DISPLAY_SCALE < 1.0:
+            disp_w = int(frame.shape[1] * DISPLAY_SCALE)
+            disp_h = int(frame.shape[0] * DISPLAY_SCALE)
+            display_frame = cv2.resize(frame, (disp_w, disp_h), interpolation=cv2.INTER_LINEAR)
+            display_mask = cv2.resize(masked, (disp_w, disp_h), interpolation=cv2.INTER_LINEAR)
+        else:
+            display_frame = frame
+            display_mask = masked
+        cv2.imshow(win, display_frame)
+        cv2.imshow("Mask", display_mask)
 
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):
             break
         if key == ord("s"):
-            print(f"  → hue_ranges: [({hmin}, {hmax})],  min_saturation: {smin}")
+            print(f"  -> hue_ranges: [({hmin}, {hmax})],  min_saturation: {smin}")
             print("    Perbarui nilai ini di config.py untuk nominal yang sedang dikalibrasi.\n")
 
     cap.release()
     cv2.destroyAllWindows()
 
 
-# -----------------------------------------------------------------------
 # Entry point
-# -----------------------------------------------------------------------
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Rupiah TE 2022 Detector  -  Alat Bantu Tunanetra"

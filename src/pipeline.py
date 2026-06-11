@@ -1,6 +1,4 @@
-"""
-pipeline.py  -  Full PCD pipeline for a single BGR frame.
-"""
+# pipeline.py - Full PCD pipeline for a single BGR frame
 
 import cv2
 import numpy as np
@@ -15,15 +13,13 @@ def process_frame(
     frame: np.ndarray,
     debug_overlay: bool = False,
 ) -> tuple:
-    """
-    Run the complete pipeline on one BGR frame.
-    Returns (ClassificationResult, annotated_frame, warped_image|None).
-    """
     annotated = frame.copy()
 
     preprocessed = preprocess(frame)
-    edges        = detect_edges(preprocessed)
-    contour      = find_banknote_contour(edges, frame.shape, preprocessed)
+    edges = detect_edges(preprocessed)
+    contour = find_banknote_contour(
+        edges, frame.shape, preprocessed, original_image=frame
+    )
 
     if contour is None:
         result = ClassificationResult(
@@ -36,7 +32,7 @@ def process_frame(
     if debug_overlay:
         cv2.drawContours(annotated, [contour], -1, (0, 220, 255), 2)
 
-    warped, _ = rectify_banknote(frame, contour)
+    warped, raw_ar = rectify_banknote(frame, contour)
     if warped is None:
         result = ClassificationResult(
             is_unrecognized=True, debug_info={"reason": "rectification_failed"}
@@ -44,7 +40,9 @@ def process_frame(
         return result, annotated, None
 
     features = extract_features(warped)
-    result   = classify(warped, features)
+    if raw_ar > 0:
+        features["aspect_ratio"] = raw_ar
+    result = classify(warped, features)
 
     if debug_overlay:
         _draw_debug(annotated, result, features)
@@ -61,13 +59,14 @@ def _put(img, text, color, y=40):
 
 def _draw_debug(img, result: ClassificationResult, features: dict):
     color = (0, 200, 60) if result.is_authentic else (0, 120, 255)
+    calibrated = "C" if result.debug_info.get("calibrated") else "H"
     lines = [
         result.get_label(),
         f"AR: {features['aspect_ratio']:.5f}  target: {result.debug_info.get('target_ar', '-')}",
-        f"Geo conf: {result.confidence_geo:.3f}  "
-        f"Dom hue: {result.debug_info.get('dominant_hue', '-')}",
-        f"Pix frac: {result.debug_info.get('pixel_fraction', '-')}  "
-        f"Color: {'OK' if result.debug_info.get('color_match') else 'FAIL'}",
+        f"Geo: {result.confidence_geo:.3f}  "
+        f"Hue: {result.debug_info.get('dominant_hue', '-')}",
+        f"Frac: {result.debug_info.get('pixel_fraction', '-')}  "
+        f"C: {'OK' if result.debug_info.get('color_match') else 'FAIL'} ({calibrated})",
     ]
     y = 35
     for line in lines:

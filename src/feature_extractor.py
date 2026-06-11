@@ -35,7 +35,9 @@ def get_dominant_hue(
     Returns None if the image contains too few saturated pixels
     (e.g. grey/silver denominations with low saturation).
     """
-    hsv = cv2.cvtColor(warped, cv2.COLOR_BGR2HSV)
+    # Light blur to reduce noise before color analysis
+    blurred = cv2.GaussianBlur(warped, (3, 3), 0.5)
+    hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
     sat = hsv[:, :, 1]
     val = hsv[:, :, 2]
 
@@ -66,7 +68,8 @@ def compute_hue_fraction(
     Fraction of total pixels matching any of the given hue ranges
     (after saturation gate).  Returns 0.0–1.0.
     """
-    hsv = cv2.cvtColor(warped, cv2.COLOR_BGR2HSV)
+    blurred = cv2.GaussianBlur(warped, (3, 3), 0.5)
+    hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
     total = warped.shape[0] * warped.shape[1]
     if total == 0:
         return 0.0

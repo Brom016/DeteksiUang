@@ -11,12 +11,13 @@ Two test levels:
 Run: python test_pipeline.py
 """
 
+import os
 import sys
 import traceback
 import cv2
 import numpy as np
 
-sys.path.insert(0, ".")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
 from config import DENOMINATIONS
 from feature_extractor import extract_features
@@ -89,16 +90,13 @@ def make_perfect_warped(denom: dict, width: int = 800) -> np.ndarray:
     return img
 
 
-# -----------------------------------------------------------------------
 def run_tests() -> None:
     passed = failed = warnings = 0
     print("=" * 68)
     print("  Rupiah Detector  -  Automated Pipeline Tests")
     print("=" * 68)
 
-    # ------------------------------------------------------------------
-    # UNIT: Perfect warped images → should be 100%
-    # ------------------------------------------------------------------
+    # UNIT: Perfect warped images -> should be 100%
     print("\n[UNIT]  Perfect warped images, direct classification  (expect: Asli)\n")
 
     for denom in DENOMINATIONS:
@@ -117,14 +115,12 @@ def run_tests() -> None:
             f"AR={features['aspect_ratio']:.5f}  "
             f"DomHue={result.debug_info.get('dominant_hue','-')}  "
             f"Frac={result.debug_info.get('pixel_fraction','-')}  "
-            f"→  {result.get_label()}"
+            f"->  {result.get_label()}"
         )
         if not ok:
             print(f"         debug: {result.debug_info}")
 
-    # ------------------------------------------------------------------
     # INTEGRATION: Full pipeline with synthetic images (black bg, no border)
-    # ------------------------------------------------------------------
     print("\n[INTEGRATION]  Full pipeline, flat synthetic images  (expect: Asli)\n")
 
     for denom in DENOMINATIONS:
@@ -144,14 +140,12 @@ def run_tests() -> None:
         print(
             f"  [{status}] Rp {denom['value']:>7,}  "
             f"AR={result.debug_info.get('measured_ar', '-')}  "
-            f"→  {result.get_label()}"
+            f"->  {result.get_label()}"
         )
         if not ok:
             print(f"         debug: {result.debug_info}")
 
-    # ------------------------------------------------------------------
     # INTEGRATION: Perspective-distorted images
-    # ------------------------------------------------------------------
     print("\n[INTEGRATION]  Perspective-distorted  (expect: Asli or Mencurigakan)\n")
 
     for denom in DENOMINATIONS[:3]:
@@ -172,12 +166,10 @@ def run_tests() -> None:
 
         print(
             f"  [{status}] Rp {denom['value']:>7,} (skewed)  "
-            f"→  {result.get_label()}"
+            f"->  {result.get_label()}"
         )
 
-    # ------------------------------------------------------------------
-    # Wrong colour → Mencurigakan
-    # ------------------------------------------------------------------
+    # Wrong colour -> Mencurigakan
     print("\n[INTEGRATION]  Correct size, wrong colour  (expect: Mencurigakan)\n")
 
     denom_100k = next(d for d in DENOMINATIONS if d["value"] == 100_000)
@@ -187,11 +179,9 @@ def run_tests() -> None:
     status = "PASS" if ok else "FAIL"
     if ok: passed += 1
     else:  failed += 1
-    print(f"  [{status}] Rp 100,000 ukuran + warna hijau  →  {result.get_label()}")
+    print(f"  [{status}] Rp 100,000 ukuran + warna hijau  ->  {result.get_label()}")
 
-    # ------------------------------------------------------------------
-    # Blank frame → Tidak Terlihat
-    # ------------------------------------------------------------------
+    # Blank frame -> Tidak Terlihat
     print("\n[INTEGRATION]  Blank frame  (expect: Tidak Terlihat)\n")
     blank = np.zeros((CANVAS_H, CANVAS_W, 3), dtype=np.uint8)
     result, _, _ = process_frame(blank)
@@ -199,9 +189,8 @@ def run_tests() -> None:
     status = "PASS" if ok else "FAIL"
     if ok: passed += 1
     else:  failed += 1
-    print(f"  [{status}] Frame kosong  →  {result.get_label()}")
+    print(f"  [{status}] Frame kosong  ->  {result.get_label()}")
 
-    # ------------------------------------------------------------------
     total = passed + failed + warnings
     print("\n" + "=" * 68)
     print(

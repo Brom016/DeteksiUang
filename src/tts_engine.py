@@ -15,7 +15,7 @@ import os
 import threading
 import subprocess
 
-_CACHE_DIR = os.path.join(os.path.dirname(__file__), "audio_cache")
+_CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "audio_cache")
 _backend: str = "console"
 _pygame_ok: bool = False
 _pyttsx3_engine = None
