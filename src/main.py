@@ -17,11 +17,13 @@ import cv2
 import numpy as np
 
 from tts_engine import init as tts_init, speak
-from pipeline import process_frame
+from pipeline import process_frame, quick_contour_detect
 from classifier import ClassificationResult
 from config import (
     CAMERA_INDEX, CAMERA_URL, FRAME_WIDTH, FRAME_HEIGHT, DISPLAY_SCALE,
-    STABILITY_FRAMES, COOLDOWN_SECONDS, NO_MONEY_MSG_INTERVAL,
+    SNAPSHOT_MODE, SNAPSHOT_CONTOUR_STREAK, SNAPSHOT_COOLDOWN,
+    MAX_PREVIEW_FPS, STABILITY_FRAMES, COOLDOWN_SECONDS,
+    NO_MONEY_MSG_INTERVAL, MAX_PROCESS_FPS,
 )
 
 # Colours used in the UI overlay
@@ -172,8 +174,9 @@ def _draw_contour_overlay(img, contour, result: ClassificationResult | None,
     cv2.drawContours(img, [contour], -1, color, 3, cv2.LINE_AA)
 
 
-# Camera auto-detection loop
-def run_camera_mode(debug: bool = False) -> None:
+# ── Camera helpers ──────────────────────────────────────────────────
+
+def _open_camera():
     if CAMERA_URL:
         cap = cv2.VideoCapture(CAMERA_URL)
         print(f"[INFO] Using IP camera: {CAMERA_URL}")
@@ -182,37 +185,151 @@ def run_camera_mode(debug: bool = False) -> None:
         print(f"[INFO] Using local camera #{CAMERA_INDEX}")
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
+    return cap
 
+
+def _resize_display(img: np.ndarray) -> np.ndarray:
+    if DISPLAY_SCALE < 1.0:
+        dw = int(img.shape[1] * DISPLAY_SCALE)
+        dh = int(img.shape[0] * DISPLAY_SCALE)
+        return cv2.resize(img, (dw, dh), interpolation=cv2.INTER_LINEAR)
+    return img
+
+
+def _wait_quit() -> bool:
+    """Return True if user pressed Q."""
+    return (cv2.waitKey(1) & 0xFF) == ord("q")
+
+
+# ── Snapshot mode  (take a picture when the note is steady) ────────
+
+def _run_snapshot_mode(debug: bool) -> None:
+    cap = _open_camera()
     if not cap.isOpened():
         print("[ERROR] Cannot open camera")
         speak("Kamera tidak ditemukan")
         sys.exit(1)
-
     speak("Sistem siap memindai")
-    print("[INFO] Auto-scan aktif. Tekan Q untuk keluar.")
+    print("[INFO] Snapshot mode aktif. Arahkan uang ke kamera. Tekan Q untuk keluar.")
 
-    buf          = StabilityBuffer()
-    last_label   = ""
-    last_result  = None
-    last_contour = None
-    no_money_ts  = 0.0     # timestamp of last "no money" audio
-    frame_n      = 0
+    streak        = 0
+    last_contour  = None
+    last_label    = ""
+    last_result   = None
+    cooldown_until = 0.0
+    processing    = False
+    snap_frame    = None
+    no_money_ts   = 0.0
+    min_interval  = 1.0 / MAX_PREVIEW_FPS
+    prev_ts       = 0.0
 
     while True:
         ret, frame = cap.read()
         if not ret:
             break
-        frame_n += 1
+        now = time.time()
 
-        if frame_n % 2 == 0:
-            result, _, warped = process_frame(frame, debug_overlay=False)
+        # ── Snapshot processing (runs once after capture) ──────────
+        if processing and snap_frame is not None:
+            print("[SNAP] Memproses snapshot...")
+            result, _, _, contour = process_frame(
+                snap_frame, debug_overlay=debug, snapshot_mode=True
+            )
+            label = result.get_label()
+            last_label = label
+            last_result = result
+            last_contour = contour
+            speak(label)
+            print(f"[RESULT] {label}")
+            if debug:
+                print(f"[DEBUG]  {result.debug_info}")
+            streak = 0
+            cooldown_until = now + SNAPSHOT_COOLDOWN
+            processing = False
+            snap_frame = None
+            continue
 
-            # Extract contour for overlay separately (lightweight re-run)
-            from preprocessor import preprocess, detect_edges, find_banknote_contour
-            preprocessed = preprocess(frame)
-            edges        = detect_edges(preprocessed)
-            last_contour = find_banknote_contour(edges, frame.shape, preprocessed)
+        # ── Cooldown ──────────────────────────────────────────────
+        if now < cooldown_until:
+            display = frame.copy()
+            _draw_guide_rect(display)
+            _draw_contour_overlay(display, last_contour, last_result, 0.0)
+            _draw_status_banner(display, last_result, True, last_label)
+            _draw_stability_bar(display, 1.0, True, cooldown_until - now)
+            cv2.imshow("Rupiah Detector  [ Q = keluar ]", _resize_display(display))
+            if _wait_quit():
+                break
+            continue
 
+        # ── Quick contour check (every frame, no full pipeline) ───
+        if now - prev_ts >= min_interval:
+            prev_ts = now
+            c = quick_contour_detect(frame)
+            if c is not None:
+                streak += 1
+                last_contour = c
+            else:
+                streak = 0
+                last_contour = None
+
+        progress = min(1.0, streak / SNAPSHOT_CONTOUR_STREAK)
+
+        # ── Trigger snapshot ──────────────────────────────────────
+        if streak >= SNAPSHOT_CONTOUR_STREAK:
+            processing = True
+            snap_frame = frame.copy()
+            print(f"[SNAP] Kontur stabil selama {streak} frame → snapshot")
+            continue
+
+        # ── "No money" prompt ─────────────────────────────────────
+        if last_contour is None and now - no_money_ts > NO_MONEY_MSG_INTERVAL:
+            # Only speak once per interval
+            no_money_ts = now
+            # Don't spam TTS, just show on screen
+
+        # ── Draw UI ───────────────────────────────────────────────
+        display = frame.copy()
+        _draw_guide_rect(display)
+        _draw_contour_overlay(display, last_contour, None, progress)
+        _draw_status_banner(display, last_result, False,
+                            last_label if last_label else "")
+        _draw_stability_bar(display, progress, False, 0.0)
+        cv2.imshow("Rupiah Detector  [ Q = keluar ]", _resize_display(display))
+        if _wait_quit():
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+# ── Streaming mode  (full pipeline every frame, stability buffer) ──
+
+def _run_streaming_mode(debug: bool) -> None:
+    cap = _open_camera()
+    if not cap.isOpened():
+        print("[ERROR] Cannot open camera")
+        speak("Kamera tidak ditemukan")
+        sys.exit(1)
+    speak("Sistem siap memindai")
+    print("[INFO] Streaming mode aktif. Tekan Q untuk keluar.")
+
+    buf          = StabilityBuffer()
+    last_label   = ""
+    last_result  = None
+    last_contour = None
+    no_money_ts  = 0.0
+    process_ts   = 0.0
+    min_interval = 1.0 / MAX_PROCESS_FPS
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        now = time.time()
+
+        if now - process_ts >= min_interval:
+            process_ts = now
+            result, _, _, last_contour = process_frame(frame, debug_overlay=False)
             last_result = result
             stable = buf.feed(result)
 
@@ -223,48 +340,44 @@ def run_camera_mode(debug: bool = False) -> None:
                 print(f"[RESULT] {label}")
                 if debug:
                     print(f"[DEBUG]  {stable.debug_info}")
-
-            # "No money" periodic audio cue
             elif (result.is_unrecognized
                   and result.debug_info.get("reason") == "no_contour"
                   and not buf.in_cooldown
-                  and time.time() - no_money_ts > NO_MONEY_MSG_INTERVAL):
+                  and now - no_money_ts > NO_MONEY_MSG_INTERVAL):
                 speak("Uang Tidak Terlihat, Dekatkan Kamera")
-                no_money_ts = time.time()
+                no_money_ts = now
 
         display = frame.copy()
-
         if not buf.in_cooldown:
             _draw_guide_rect(display)
             _draw_contour_overlay(display, last_contour, last_result, buf.progress)
-
         _draw_status_banner(display, last_result, buf.in_cooldown, last_label)
         _draw_stability_bar(display, buf.progress, buf.in_cooldown, buf.cooldown_remaining)
 
         if debug and last_result is not None:
             di = last_result.debug_info
-            dbg_lines = [
+            dbg = [
                 f"AR: {di.get('measured_ar', '-'):.5f}  target: {di.get('target_ar', '-')}",
                 f"DomHue: {di.get('dominant_hue', '-')}  "
                 f"Frac: {di.get('pixel_fraction', '-')}",
             ]
-            for i, line in enumerate(dbg_lines):
+            for i, line in enumerate(dbg):
                 _text(display, line, (14, 58 + i * 22), scale=0.5, color=C_YELLOW)
 
-        # Resize display if needed
-        if DISPLAY_SCALE < 1.0:
-            disp_w = int(display.shape[1] * DISPLAY_SCALE)
-            disp_h = int(display.shape[0] * DISPLAY_SCALE)
-            display = cv2.resize(display, (disp_w, disp_h), interpolation=cv2.INTER_LINEAR)
-
-        cv2.imshow("Rupiah Detector  [ Q = keluar ]", display)
-
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord("q"):
+        cv2.imshow("Rupiah Detector  [ Q = keluar ]", _resize_display(display))
+        if _wait_quit():
             break
 
     cap.release()
     cv2.destroyAllWindows()
+
+
+# Camera auto-detection loop — dispatcher
+def run_camera_mode(debug: bool = False) -> None:
+    if SNAPSHOT_MODE:
+        _run_snapshot_mode(debug)
+    else:
+        _run_streaming_mode(debug)
 
 
 # Single-image mode
@@ -274,7 +387,7 @@ def run_image_mode(image_path: str, debug: bool = False) -> None:
         print(f"[ERROR] Cannot read: {image_path}")
         sys.exit(1)
 
-    result, annotated, warped = process_frame(frame, debug_overlay=debug)
+    result, annotated, warped, _ = process_frame(frame, debug_overlay=debug)
     label = result.get_label()
 
     print(f"[RESULT] {label}")
@@ -289,14 +402,6 @@ def run_image_mode(image_path: str, debug: bool = False) -> None:
 
 
 # HSV calibration tool
-def _open_camera():
-    if CAMERA_URL:
-        cap = cv2.VideoCapture(CAMERA_URL)
-        print(f"[INFO] Using IP camera: {CAMERA_URL}")
-    else:
-        cap = cv2.VideoCapture(CAMERA_INDEX)
-        print(f"[INFO] Using local camera #{CAMERA_INDEX}")
-    return cap
 
 
 def run_calibration_mode() -> None:

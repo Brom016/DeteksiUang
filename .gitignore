@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.pyo
+*.exe
+*.zip
+calibration_profile.json
+images/*.png
+_generate_templates.py
+tesseract/

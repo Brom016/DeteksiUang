@@ -13,25 +13,23 @@ def preprocess(image: np.ndarray) -> np.ndarray:
 
 
 def _adaptive_canny(gray: np.ndarray) -> np.ndarray:
-    # Try Otsu-based thresholds; fallback to fixed if image is near-uniform
     otsu_val, _ = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     if otsu_val < 5 or otsu_val > 250:
         low, high = 30, 100
     else:
         low = max(10, int(0.4 * otsu_val))
-        high = max(30, int(1.2 * otsu_val))
+        high = max(20, int(0.8 * otsu_val))
     edges = cv2.Canny(gray, low, high)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
     closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=2)
     return closed
 
 
 def _enhanced_preprocess(image: np.ndarray) -> np.ndarray:
-    # Aggressive CLAHE + bilateral for low-contrast / uneven lighting scenes
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     enhanced = clahe.apply(gray)
-    return cv2.bilateralFilter(enhanced, d=7, sigmaColor=50, sigmaSpace=50)
+    return cv2.GaussianBlur(enhanced, (5, 5), 0.8)
 
 
 def detect_edges(preprocessed: np.ndarray) -> np.ndarray:

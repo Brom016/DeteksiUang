@@ -129,7 +129,7 @@ def run_tests() -> None:
         s_val = max(s_val, denom["min_saturation"])
         fill = hsv_to_bgr(h_val, s_val, v_val)
         img  = make_integration_image(fill, denom["aspect_ratio"])
-        result, _, _ = process_frame(img)
+        result, _, _, _ = process_frame(img)
 
         ok = result.is_authentic and result.denomination is not None \
              and result.denomination["value"] == denom["value"]
@@ -153,7 +153,7 @@ def run_tests() -> None:
         s_val = min(s_val, denom["max_saturation"])
         fill  = hsv_to_bgr(h_val, s_val, v_val)
         img   = make_integration_image(fill, denom["aspect_ratio"], skewed=True)
-        result, _, _ = process_frame(img)
+        result, _, _, _ = process_frame(img)
 
         ok   = result.is_authentic and result.denomination is not None \
                and result.denomination["value"] == denom["value"]
@@ -174,7 +174,7 @@ def run_tests() -> None:
 
     denom_100k = next(d for d in DENOMINATIONS if d["value"] == 100_000)
     wrong = make_integration_image(hsv_to_bgr(62, 160, 150), denom_100k["aspect_ratio"])
-    result, _, _ = process_frame(wrong)
+    result, _, _, _ = process_frame(wrong)
     ok = result.is_suspicious
     status = "PASS" if ok else "FAIL"
     if ok: passed += 1
@@ -184,7 +184,7 @@ def run_tests() -> None:
     # Blank frame -> Tidak Terlihat
     print("\n[INTEGRATION]  Blank frame  (expect: Tidak Terlihat)\n")
     blank = np.zeros((CANVAS_H, CANVAS_W, 3), dtype=np.uint8)
-    result, _, _ = process_frame(blank)
+    result, _, _, _ = process_frame(blank)
     ok = result.is_unrecognized
     status = "PASS" if ok else "FAIL"
     if ok: passed += 1
